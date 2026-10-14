@@ -191,6 +191,16 @@ Private Endpointを作るだけではオンプレPCから到達できません�
 
 ### 4.4 Entra IDアプリを構成
 
+**推奨方式です。** Functionsキー方式を選ぶ場合はこの節を省略し、4.5で
+`mcpAuthenticationMode=functionKey`を指定して、5.2.1と6.3を実施します。
+キー方式を選ぶと、入力した`networkMode`にかかわらずテンプレートは実効ネットワークをprivateへ固定します。
+必要なサブネット・Private DNS設定がない公開PoC用パラメーターではデプロイできません。
+
+| 方式 | 推奨用途 | 利用者単位の統制 | ネットワーク条件 |
+|---|---|---|---|
+| Entra ID | 既定・推奨 | MFA / Conditional Access / 許可ユーザー / `search` scope | private、承認済み公開PoC |
+| Functionsキー | Entra対話認証を使えない限定端末 | なし。共有秘密の配布・失効台帳が必要 | privateのみ |
+
 ```powershell
 .\scripts\New-EntraApps.ps1 -NamePrefix $Prefix
 $Entra = Get-Content .\entra.local.json -Raw | ConvertFrom-Json
@@ -227,6 +237,7 @@ $p.parameters.foundryResourceGroup.value = $FoundryRg
 $p.parameters.foundryAccountName.value = $FoundryName
 $p.parameters.foundryProjectName.value = $ProjectName
 $p.parameters.foundryProjectEndpoint.value = $ProjectEndpoint
+$p.parameters.mcpAuthenticationMode.value = 'entra'
 $p.parameters.mcpApiClientId.value = $Entra.api.clientId
 $p.parameters.mcpPublicClientId.value = $Entra.client.clientId
 $p.parameters.allowedUserObjectIds.value = @($AuthorObjectId)
@@ -249,7 +260,7 @@ $McpUrl = $Outputs.mcpUrl.value
 $McpHost = ([uri]$McpUrl).Host
 ```
 
-URL確定後、同じEntraアプリのApplication ID URIへ**正確なMCP URL（`/mcp`を含む）**も登録します。
+Entra方式では、URL確定後、同じEntraアプリのApplication ID URIへ**正確なMCP URL（`/mcp`を含む）**も登録します。
 既存の`api://<API-client-id>`と`search`スコープは維持します。
 
 ```powershell
@@ -352,7 +363,70 @@ Windows上の`pip --platform`だけでは依存関係のOS条件がWindowsとし
 実行プロセスに設定します。pipのミラー設定はuvには自動継承されません。TLS検証は無効化しません。
 依存解決に失敗した場合は発行せず終了します。
 
-Flexでは `WEBSITE_RUN_FROM_PACKAGE`、`WEBSITE_CONTENTAZUREFILECONNECTIONSTRING`、従来型Consumption用設定を追加しません。共有キー、Functionキー、publish profileに依存しません。
+Flexでは `WEBSITE_RUN_FROM_PACKAGE`、`WEBSITE_CONTENTAZUREFILECONNECTIONSTRING`、従来型Consumption用設定を追加しません。Entra方式は共有キー、Functionキー、publish profileに依存しません。
+
+#### 5.2.1 代替：Functionsキー認証へ切り替える
+
+Entraの対話ログインを利用できない閉域端末向けの代替です。Functionsキーは利用者IDを持たない**共有Bearer secret**であり、
+Conditional Access、利用者単位の無効化、`search` scope検査、Entraサインイン監査を提供しません。
+漏えいしたキーを持つ利用者は同じ権限になります。公開HTTPS PoCでは使用せず、テンプレートが強制するprivate構成、
+Private Endpoint、端末側の秘密管理、定期ローテーションを必須とします。Entra方式を使用できる場合は切り替えません。
+
+MCPカスタムハンドラーには通常のFunction定義がないため、この実装は名前付き**ホストキー**を使用します。
+ホストキーは将来同じFunction Appへ追加する他のFunctionにもアクセスできるため、検索MCP専用Appを維持してください。
+`_master`キーは管理API権限を持つため、クライアントへ配布してはいけません。
+キーはURLの`?code=`に入れず、`x-functions-key`ヘッダーだけで送信します。
+
+新規構築時は4.5のパラメーターを次のように設定します。Entraの3パラメーターは空のままで構いません。
+
+```powershell
+$p.parameters.mcpAuthenticationMode.value = 'functionKey'
+$p.parameters.mcpApiClientId.value = ''
+$p.parameters.mcpPublicClientId.value = ''
+$p.parameters.allowedUserObjectIds.value = @()
+```
+
+既存のEntra構成から切り替える場合は、先に名前付きキーを生成し、Functionsホスト側のキー検査を有効にしたパッケージを発行します。
+この時点ではEasy Authも残るため一時的に両方が必要となり、短時間の接続断が発生します。
+
+```powershell
+$KeyName = 'mcp-client-v1'
+az functionapp keys set -g $Rg -n $FunctionApp `
+  --key-type functionKeys --key-name $KeyName --output none
+if ($LASTEXITCODE -ne 0) { throw 'Functions host key creation failed' }
+
+.\scripts\Publish-Mcp.ps1 -SubscriptionId $SubscriptionId `
+  -ResourceGroup $Rg -FunctionAppName $FunctionApp `
+  -AuthenticationMode FunctionKey
+```
+
+次にパラメーターファイルを`functionKey`へ変更し、4.5と同じvalidate / what-if後にBicepを再適用します。
+BicepはEasy Authを無効化し、アプリのclaims検査を停止します。Functionsホストのキー検査は維持されます。
+切り替え中にEasy Authだけを手動で先に無効化しないでください。
+
+キー値は画面やログへ出力せず、組織承認済みの秘密配布手段で各端末へ渡します。
+確認のため取得する場合も、変数へ直接格納し、作業終了時に破棄します。
+
+```powershell
+$FunctionKey = az functionapp keys list -g $Rg -n $FunctionApp `
+  --query "functionKeys.'$KeyName'" -o tsv
+if ($LASTEXITCODE -ne 0 -or -not $FunctionKey) { throw 'Functions host key lookup failed' }
+$env:FOUNDRY_SEARCH_FUNCTION_KEY = $FunctionKey
+Remove-Variable FunctionKey
+```
+
+キーをローテーションするときは別名の新しいキーを生成し、全クライアントを更新・確認してから旧キーを削除します。
+同じ名前を上書きすると全クライアントが同時に切断されます。
+
+```powershell
+az functionapp keys delete -g $Rg -n $FunctionApp `
+  --key-type functionKeys --key-name '<OLD-KEY-NAME>' --output none
+```
+
+Entraへ戻す場合は逆順です。まずパラメーターファイルを`entra`へ戻してBicepを適用し、
+Easy Authとアプリのscope検査を復元します。その後、通常の
+`Publish-Mcp.ps1 -AuthenticationMode Entra`を発行し、受入確認後にFunctionsキーを削除します。
+この順序では移行中に両方の認証が必要となるため停止時間は生じますが、匿名公開にはなりません。
 
 ### 5.3 検索モデルだけを変更する
 
@@ -413,7 +487,37 @@ Claude Code内で `/mcp` → `foundry-search` → 認証を実施。最新の公
 
 スコープ自動検出ではEasy AuthのPRMが `search` を通知します。MCPメタデータ取得や認証が失敗する場合は、`/.well-known/oauth-protected-resource` と401の `WWW-Authenticate` を確認します。[MCP認証][mcp-auth] / [Claude MCP OAuth][claude-mcp]
 
-### 6.3 管理者ポリシーと通信制御
+### 6.3 代替：FunctionsキーをClaude Codeへ設定
+
+5.2.1でキー方式へ切り替えた場合だけ実施します。`examples/claude-mcp-function-key.example.json`は
+キー自体を含まず、環境変数参照だけを保持する例です。`FOUNDRY_SEARCH_FUNCTION_KEY`を
+Claude Code起動前のプロセス環境へ安全に注入してください。値を`.mcp.json`、リポジトリ、
+PowerShellプロファイル、管理設定、チケット、チャットへ直接保存しません。
+
+```powershell
+$Definition = @{
+  type = 'http'
+  url = $McpUrl
+  headers = @{
+    'x-functions-key' = '${FOUNDRY_SEARCH_FUNCTION_KEY}'
+  }
+  timeout = 200000
+} | ConvertTo-Json -Compress
+
+claude mcp remove foundry-search --scope user
+claude mcp add-json --scope user foundry-search $Definition
+Remove-Variable Definition
+claude mcp get foundry-search
+```
+
+環境変数が未設定なら接続を開始しないでください。Claude Codeの構成には変数名が残りますが、
+展開後のキーは共有秘密です。端末のプロセス環境、クラッシュダンプ、バックアップ、
+EDR収集範囲を組織の秘密管理基準に合わせます。
+
+受入確認ではキーなし・誤ったキーが拒否され、正しいキーで`initialize`、`tools/list`、
+`tools/call`が成功することを確認します。キー方式ではOAuthログイン画面やPRMは使用しません。
+
+### 6.4 管理者ポリシーと通信制御
 
 `examples/managed-settings.example.json` を既存の管理ポリシーへ**マージ**します。Windowsの管理ファイルは通常 `C:\Program Files\ClaudeCode\managed-settings.json`。既存設定を上書きしないでください。組織の端末管理で配布し、ユーザーが書き換えられないようにします。
 
@@ -443,6 +547,15 @@ Claude Code内で `/mcp` → `foundry-search` → 認証を実施。最新の公
 
 このスクリプトはブラウザでOAuth認証し、未認証401、`initialize`、`tools/list`、`tools/call`、引用付き回答を確認します。トークンをファイルやstdoutへ出しません。ポート8765で別のログイン処理を同時実行しないでください。
 
+Functionsキー方式では、キーを環境変数から読み込みます。キー値をコマンドライン引数へ直接記述しません。
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\smoke_test.py `
+  --url $McpUrl --function-key-env FOUNDRY_SEARCH_FUNCTION_KEY
+```
+
+このモードはキーなし・意図的な誤キーの401も確認してから、正しいキーでMCPと引用付き検索を実行します。
+
 Azure Identityの`InteractiveBrowserCredential`はリダイレクトURIのパスを使用せず、`http://localhost:8765`を送信します。
 Claude Code用の`/callback`だけではPythonの確認が`AADSTS50011`で失敗するため、公開クライアントに上記2つのURIを登録します。
 既存環境は同じstateファイルで更新版`New-EntraApps.ps1`を再実行してください。既存のリダイレクトURIは保持されます。
@@ -458,8 +571,9 @@ Claude Code用の`/callback`だけではPythonの確認が`AADSTS50011`で失敗
 | 公開無効化 | Functions・Storage・既存Foundryのpublic network accessがDisabled |
 | インターネット側からの拒否 | 社内VPN等を使わない別端末から、認証情報があってもFunctionデータプレーンにアクセス不可 |
 | 未認証 | 閉域からでも `/mcp` は401 |
-| 認可 | 許可リストにないユーザーは拒否。別tenant / audience / client IDのトークンも拒否 |
-| スコープ | 有効なAPIトークンでも `search` scopeなしは403 |
+| Entra認可 | 許可リストにないユーザーは拒否。別tenant / audience / client IDのトークンも拒否 |
+| Entraスコープ | 有効なAPIトークンでも `search` scopeなしは403 |
+| Functionsキー方式 | キーなし・誤キーは拒否、正しい`x-functions-key`だけ成功。Public Endpointは無効 |
 | MCPプロトコル | initialize・tools/list成功、公開ツールは `search_web` のみ |
 | 正常検索 | `answer`、`citations`（URL・タイトル・文字位置）、`response_id` を返す |
 | 失敗時 | 403/429/タイムアウト/引用なしでMCPの `isError=true`。秘密を含む内部例外本文は返さない |
@@ -493,6 +607,7 @@ Claude Code用の`/callback`だけではPythonの確認が`AADSTS50011`で失敗
 - SDKの自動リトライは無効です。429等の際に意図せず検索料金が重複しないよう、利用者へエラーを返します。タイムアウト後もサービス側処理が完了して課金される場合があります。
 - HTTPアクセスログ・SDK詳細ログ・クエリ/回答ログはアプリ側では出しません。失敗カテゴリのみをstderrへ出力します。カスタムハンドラーのstdout/stderrの収集先・保持方針はAzureで確認してください。Application Insightsを作るだけではPython独自処理のトレースが自動的にすべて収集されるわけではありません。
 - Application Insightsの失敗率/応答時間、Functionsメトリクス、Entraサインインログ、Azure Activity Logを監視。利用者ごとの厳密なレート制限・課金配賦は未実装です。必要ならAPIM等を別途導入します。
+- Functionsキー方式ではEntraサインインログや利用者IDを取得できません。キー名を利用者識別として扱わず、配布台帳・期限・ローテーションを別途管理します。
 - 依存関係の直接バージョンを固定しています。配布前に組織の承認済み依存ロック・脆弱性検査・パッケージミラー運用を適用してください。
 
 課金対象はGPT推論、Web Search、Functions、Storage、Private Endpoint、監視、必要ならDNS Resolver / VPN / ExpressRouteです。Foundryで検索してもClaude側には結果の入力トークン料金が発生します。`maximumInstanceCount=40` はAzure Flexの設定値であり予算上限ではありません。実価格はリージョン・契約・利用量に依存するため、料金計算とAzure Budgetアラートを設定します。
@@ -507,6 +622,7 @@ Claude Code用の`/callback`だけではPythonの確認が`AADSTS50011`で失敗
 | DCR unsupported | `--client-id` を指定。Entraで動的登録を前提にしない |
 | 未認証401が続く | PRM、audience、issuer、search scope、ブラウザ認証、許可client IDを確認 |
 | 有効トークンでも403 | ユーザーObject ID許可リストとscope。MCP API用でなくFoundry用トークンを使っていないか |
+| キー方式で401/403 | `mcpAuthenticationMode=functionKey`、FunctionKey用パッケージ、`x-functions-key`、キー名/値、環境変数展開を確認。URLクエリへキーを移さない |
 | Foundryで403 | Functions Managed IdentityのProject RBAC、反映待ち、Foundry PE / public disabledを確認 |
 | Agent API / `agent_reference` が非対応 | 新Foundry Projectか、固定SDK/API/リージョン/モデルの対応を確認。旧Assistants APIと混在させない |
 | Web Searchが拒否 | モデル対応、利用条件、サブスクリプションの `OpenAI.BlockedTools.web_search` 制限、クォータを管理者が確認。勝手にブロックを解除しない |
@@ -520,6 +636,7 @@ Claude Code用の`/callback`だけではPythonの確認が`AADSTS50011`で失敗
 Agent更新だけを戻す場合、Functionsの `FOUNDRY_AGENT_VERSION` とパラメーターファイルを直前の動作確認済み版へ戻します。コード更新は直前のパッケージ/コミットから再発行します。
 
 緊急停止はFunction App停止、または管理者ポリシーで `mcp__foundry-search__search_web` をdeny。利用者を外す場合は `allowedUserObjectIds` を変更し、トークンキャッシュ・再認証を含めて拒否を確認します。
+Functionsキー方式で一利用者を外す場合は共有キーをローテーションし、残す利用者へ新キーを再配布します。
 
 環境を撤去するときは、この構成専用のリソース・アプリ登録・RBAC・DNSリンクのみを台帳と照合して削除します。**既存Foundry、Claude、既存Project、共有DNS・Hub・回線は削除しません。** RG一括削除の前に既存資産が含まれていないことを必ず確認してください。
 
@@ -535,6 +652,7 @@ Agent更新だけを戻す場合、Functionsの `FOUNDRY_AGENT_VERSION` とパ�
 - [公式Python Functions MCPサンプル][functions-sample]
 - [Easy Auth MCP認証、PRM、DCR非対応、トークン転送禁止][mcp-auth]
 - [Functionsのパッケージ配布とprivate SCM][package-deploy]
+- [Azure Functionsアクセスキーの種類・送信・ローテーション][function-keys]
 - [Claude Code on Microsoft Foundry][claude-foundry]
 - [Claude Code MCP、OAuth client ID、callback、scopes][claude-mcp]
 
@@ -546,5 +664,6 @@ Agent更新だけを戻す場合、Functionsの `FOUNDRY_AGENT_VERSION` とパ�
 [functions-sample]: https://github.com/Azure-Samples/mcp-sdk-functions-hosting-python
 [mcp-auth]: https://learn.microsoft.com/en-us/azure/app-service/configure-authentication-mcp
 [package-deploy]: https://learn.microsoft.com/en-us/azure/azure-functions/deployment-zip-push
+[function-keys]: https://learn.microsoft.com/en-us/azure/azure-functions/function-keys-how-to
 [claude-foundry]: https://code.claude.com/docs/en/microsoft-foundry
 [claude-mcp]: https://code.claude.com/docs/en/mcp

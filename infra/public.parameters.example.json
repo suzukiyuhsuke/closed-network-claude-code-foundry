@@ -11,6 +11,7 @@
     "foundryProjectEndpoint": { "value": "https://REPLACE.services.ai.azure.com/api/projects/REPLACE" },
     "agentName": { "value": "REPLACE_WITH_EXISTING_SEARCH_AGENT" },
     "agentVersion": { "value": "1" },
+    "mcpAuthenticationMode": { "value": "entra" },
     "mcpApiClientId": { "value": "REPLACE" },
     "mcpPublicClientId": { "value": "REPLACE" },
     "allowedUserObjectIds": { "value": ["REPLACE_WITH_ENTRA_USER_OBJECT_ID"] },

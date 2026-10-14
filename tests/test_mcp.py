@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
@@ -105,3 +106,24 @@ def test_malformed_auth(principal, status):
 def test_wrong_scope():
     with TestClient(create_app(FakeSearch())) as client:
         assert rpc(client, "tools/list", {}, headers("user.read")).status_code == 403
+
+
+def test_function_key_mode_relies_on_functions_host_auth():
+    with TestClient(create_app(FakeSearch(), auth_mode="functionKey")) as client:
+        assert rpc(client, "tools/list", {}, {
+            "Accept": "application/json, text/event-stream",
+        }).status_code == 200
+
+
+def test_unknown_auth_mode_is_rejected():
+    with pytest.raises(ValueError, match="MCP_AUTH_MODE"):
+        create_app(FakeSearch(), auth_mode="unknown")
+
+
+def test_host_profiles_enforce_the_selected_outer_authentication():
+    root = Path(__file__).resolve().parents[1] / "src" / "mcp_server"
+    entra = json.loads((root / "host.json").read_text(encoding="utf-8"))
+    function_key = json.loads((root / "host.function-key.json").read_text(encoding="utf-8"))
+
+    assert entra["customHandler"]["http"]["defaultAuthorizationLevel"] == "anonymous"
+    assert function_key["customHandler"]["http"]["defaultAuthorizationLevel"] == "function"

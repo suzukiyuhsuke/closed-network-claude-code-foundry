@@ -3,7 +3,7 @@ param location string = resourceGroup().location
 @maxLength(16)
 param namePrefix string
 @allowed(['private', 'public', 'public-with-private-storage'])
-@description('Public modes are for approved connectivity PoCs. public-with-private-storage keeps Storage private; authentication remains required.')
+@description('Public modes are for approved connectivity PoCs. public-with-private-storage keeps Storage private; authentication remains required. functionKey authentication always forces the effective mode to private.')
 param networkMode string = 'private'
 param functionsSubnetId string = ''
 param endpointsSubnetId string = ''
@@ -15,18 +15,23 @@ param foundryProjectName string
 param foundryProjectEndpoint string
 param agentName string = 'shared-web-search'
 param agentVersion string = '1'
-param mcpApiClientId string
-param mcpPublicClientId string
-@minLength(1)
+@allowed(['entra', 'functionKey'])
+@description('entra is recommended. functionKey uses a shared Functions host key and should be combined with private network access.')
+param mcpAuthenticationMode string = 'entra'
+@description('Required when mcpAuthenticationMode is entra.')
+param mcpApiClientId string = ''
+@description('Required when mcpAuthenticationMode is entra.')
+param mcpPublicClientId string = ''
 @description('Entra user object IDs authorized to invoke MCP. No tenant-wide default.')
-param allowedUserObjectIds array
+param allowedUserObjectIds array = []
 param createFoundryPrivateEndpoint bool = true
 
 var suffix = uniqueString(resourceGroup().id, namePrefix)
 var appName = '${namePrefix}-mcp-${suffix}'
 var storageName = 'stmcp${suffix}'
-var privateNetworking = networkMode == 'private'
-var privateStorage = networkMode != 'public'
+// Shared-key authentication is never exposed through a public Function endpoint.
+var privateNetworking = networkMode == 'private' || mcpAuthenticationMode == 'functionKey'
+var privateStorage = privateNetworking || networkMode != 'public'
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${namePrefix}-identity'
@@ -164,9 +169,13 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundryProjectEndpoint }
         { name: 'FOUNDRY_AGENT_NAME', value: agentName }
         { name: 'FOUNDRY_AGENT_VERSION', value: agentVersion }
+        { name: 'MCP_AUTH_MODE', value: mcpAuthenticationMode }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: insights.properties.ConnectionString }
         { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'ClientId=${identity.properties.clientId};Authorization=AAD' }
-        { name: 'WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES', value: 'api://${mcpApiClientId}/search' }
+        {
+          name: 'WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES'
+          value: mcpAuthenticationMode == 'entra' ? 'api://${mcpApiClientId}/search' : ''
+        }
       ]
     }
   }
@@ -175,8 +184,10 @@ resource app 'Microsoft.Web/sites@2024-04-01' = {
 resource auth 'Microsoft.Web/sites/config@2024-04-01' = {
   parent: app
   name: 'authsettingsV2'
-  properties: {
-    platform: { enabled: true }
+  properties: mcpAuthenticationMode == 'entra' ? {
+    platform: {
+      enabled: true
+    }
     globalValidation: {
       requireAuthentication: true
       unauthenticatedClientAction: 'Return401'
@@ -199,6 +210,17 @@ resource auth 'Microsoft.Web/sites/config@2024-04-01' = {
       }
     }
     login: { tokenStore: { enabled: false } }
+  } : {
+    platform: {
+      enabled: false
+    }
+    globalValidation: {
+      requireAuthentication: false
+      unauthenticatedClientAction: 'AllowAnonymous'
+    }
+    httpSettings: {
+      requireHttps: true
+    }
   }
 }
 resource scm 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-04-01' = {
@@ -258,4 +280,5 @@ output mcpUrl string = 'https://${app.properties.defaultHostName}/mcp'
 output storageAccountName string = storage.name
 output managedIdentityPrincipalId string = identity.properties.principalId
 output managedIdentityClientId string = identity.properties.clientId
-output networkMode string = networkMode
+output networkMode string = privateNetworking ? 'private' : networkMode
+output mcpAuthenticationMode string = mcpAuthenticationMode

@@ -24,6 +24,7 @@ Claude Code のエージェントループはPCに残し、**Web検索だけを 
 - Foundry Web Search は **公開エンドポイントを利用**します。検索クエリは Bing の処理境界に送られ、Azure の DPA・地理的境界内に完結しません。ソースコード、秘密情報、個人情報を検索に渡さない運用が必要です。
 - `WebFetch` / `WebSearch` の deny はネットワーク遮断ではありません。Bash、Python、別MCPなどからの迂回は、端末・ネットワーク側の送信制御で防ぎます。
 - Functions の SDK 型 MCP ホスティングと Easy Auth の MCP メタデータはプレビューです。本番採用前に組織の承認と実環境受入確認が必要です。
+- MCP認証はEntra IDを推奨します。Functionsキーは、Private Endpoint配下で共有秘密を安全に配布・ローテーションできる場合だけ選べる代替方式です。
 - このリポジトリは **構築用成果物**です。実環境での確認状況・制約は[PoC手順](docs/public-poc.ja.md)に記載しています。
 
 ## ローカル検証
