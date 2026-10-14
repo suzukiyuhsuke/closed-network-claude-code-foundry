@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "foundry-search": {
+      "type": "http",
+      "url": "https://REPLACE.azurewebsites.net/mcp",
+      "timeout": 200000,
+      "oauth": {
+        "clientId": "REPLACE_WITH_PUBLIC_CLIENT_APP_ID",
+        "callbackPort": 8765,
+        "scopes": "api://REPLACE_WITH_MCP_API_APP_ID/search offline_access"
+      }
+    }
+  }
+}

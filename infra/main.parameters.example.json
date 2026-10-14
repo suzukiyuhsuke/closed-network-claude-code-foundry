@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "japaneast" },
+    "namePrefix": { "value": "websearch" },
+    "functionsSubnetId": { "value": "REPLACE_FROM_NETWORK_OUTPUT" },
+    "endpointsSubnetId": { "value": "REPLACE_FROM_NETWORK_OUTPUT" },
+    "dnsZoneIds": {
+      "value": {
+        "functions": "REPLACE_ZONE_RESOURCE_ID",
+        "blob": "REPLACE_ZONE_RESOURCE_ID",
+        "foundry": ["REPLACE_ZONE_RESOURCE_ID", "REPLACE_ZONE_RESOURCE_ID", "REPLACE_ZONE_RESOURCE_ID"]
+      }
+    },
+    "foundryResourceGroup": { "value": "REPLACE" },
+    "foundryAccountName": { "value": "REPLACE" },
+    "foundryProjectName": { "value": "REPLACE" },
+    "foundryProjectEndpoint": { "value": "https://REPLACE.services.ai.azure.com/api/projects/REPLACE" },
+    "agentName": { "value": "shared-web-search" },
+    "agentVersion": { "value": "1" },
+    "mcpApiClientId": { "value": "REPLACE" },
+    "mcpPublicClientId": { "value": "REPLACE" },
+    "allowedUserObjectIds": { "value": ["REPLACE_WITH_ENTRA_USER_OBJECT_ID"] },
+    "createFoundryPrivateEndpoint": { "value": true }
+  }
+}
