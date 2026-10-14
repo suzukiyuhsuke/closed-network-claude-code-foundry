@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "foundry-search": {
+      "type": "http",
+      "url": "https://REPLACE.azurewebsites.net/mcp",
+      "headers": {
+        "x-functions-key": "${FOUNDRY_SEARCH_FUNCTION_KEY}"
+      },
+      "timeout": 200000
+    }
+  }
+}

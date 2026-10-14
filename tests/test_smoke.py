@@ -32,7 +32,32 @@ def test_smoke_uses_registered_pathless_redirect(monkeypatch):
         "api://test-api/search"
     )
     verify.assert_awaited_once_with(
-        "https://example.test/mcp", "fake-token-for-local-test", "test query"
+        "https://example.test/mcp",
+        {"Authorization": "Bearer fake-token-for-local-test"},
+        "test query",
+    )
+
+
+def test_smoke_reads_function_key_from_environment(monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("smoke_test", root / "scripts" / "smoke_test.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    verify = AsyncMock()
+    monkeypatch.setattr(module, "verify", verify)
+    monkeypatch.setenv("TEST_FUNCTION_KEY", "test-key")
+    monkeypatch.setattr("sys.argv", [
+        "smoke_test.py", "--url", "https://example.test/mcp",
+        "--function-key-env", "TEST_FUNCTION_KEY", "--query", "test query",
+    ])
+
+    module.main()
+
+    verify.assert_awaited_once_with(
+        "https://example.test/mcp",
+        {"x-functions-key": "test-key"},
+        "test query",
+        verify_wrong_function_key=True,
     )
     registration = (root / "scripts" / "New-EntraApps.ps1").read_text(encoding="utf-8")
     assert "'http://localhost:8765'" in registration

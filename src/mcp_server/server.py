@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import logging
+import os
 from typing import Annotated, Protocol
 
 import uvicorn
@@ -49,7 +50,11 @@ class RequireSearchScope(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def create_app(service: SearchService, *, local: bool = False) -> ASGIApp:
+def create_app(
+    service: SearchService, *, local: bool = False, auth_mode: str = "entra"
+) -> ASGIApp:
+    if auth_mode not in ("entra", "functionKey"):
+        raise ValueError("MCP_AUTH_MODE must be entra or functionKey.")
     mcp = FastMCP(
         "foundry-search",
         stateless_http=True,
@@ -85,7 +90,7 @@ def create_app(service: SearchService, *, local: bool = False) -> ASGIApp:
             raise ToolError(str(error)) from None
 
     app = mcp.streamable_http_app()
-    if not local:
+    if not local and auth_mode == "entra":
         app.add_middleware(RequireSearchScope)
     return app
 
@@ -93,8 +98,9 @@ def create_app(service: SearchService, *, local: bool = False) -> ASGIApp:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
     settings = Settings.from_env()
+    auth_mode = os.getenv("MCP_AUTH_MODE", "entra").strip()
     uvicorn.run(
-        create_app(FoundrySearch(settings), local=settings.local),
+        create_app(FoundrySearch(settings), local=settings.local, auth_mode=auth_mode),
         host="127.0.0.1" if settings.local else "0.0.0.0",
         port=8000,
         access_log=False,
