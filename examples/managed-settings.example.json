@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "deny": ["WebFetch", "WebSearch"],
+    "ask": ["mcp__foundry-search__search_web"]
+  },
+  "env": {
+    "CLAUDE_CODE_USE_FOUNDRY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

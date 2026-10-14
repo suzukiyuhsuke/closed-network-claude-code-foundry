@@ -1,0 +1,10 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsFeatureFlags": "EnableMcpCustomHandlerPreview",
+    "LOCAL_DEVELOPMENT": "true",
+    "FOUNDRY_PROJECT_ENDPOINT": "https://REPLACE.services.ai.azure.com/api/projects/REPLACE",
+    "FOUNDRY_AGENT_NAME": "shared-web-search",
+    "FOUNDRY_AGENT_VERSION": "1"
+  }
+}

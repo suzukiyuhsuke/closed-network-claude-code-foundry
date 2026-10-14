@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+local.settings.json
+config.local.json
+*.local.json
+infra/*.json
+!infra/*.example.json
+dist/
+.python_packages/
+.azure/
+.foundry/
+eval.yaml

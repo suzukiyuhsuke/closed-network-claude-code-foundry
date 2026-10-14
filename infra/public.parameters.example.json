@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "eastus2" },
+    "namePrefix": { "value": "websearchpoc" },
+    "networkMode": { "value": "public" },
+    "foundryResourceGroup": { "value": "REPLACE" },
+    "foundryAccountName": { "value": "REPLACE" },
+    "foundryProjectName": { "value": "REPLACE" },
+    "foundryProjectEndpoint": { "value": "https://REPLACE.services.ai.azure.com/api/projects/REPLACE" },
+    "agentName": { "value": "REPLACE_WITH_EXISTING_SEARCH_AGENT" },
+    "agentVersion": { "value": "1" },
+    "mcpApiClientId": { "value": "REPLACE" },
+    "mcpPublicClientId": { "value": "REPLACE" },
+    "allowedUserObjectIds": { "value": ["REPLACE_WITH_ENTRA_USER_OBJECT_ID"] },
+    "createFoundryPrivateEndpoint": { "value": false }
+  }
+}
